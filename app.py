@@ -3,8 +3,14 @@ import pandas as pd
 import os
 import hashlib
 from github import Github
-from views import database as db
-from views import authentication, user_management, child_management, progress_tracking, session_planning, data_analytics, progress_charts
+
+# --- CORRECTED IMPORTS USING YOUR FILE NAMES ---
+# Note: authentication, child_management, and data_analytics logic 
+# is assumed to be handled by admin_tool and database.
+from views import admin_tool, user_management # admin_tool handles login/child/user management
+from views import database as db # database handles persistence and will be used for analytics
+from views import dashboard, planner, tracker # These map to progress_charts, session_planning, progress_tracking
+# ---------------------------------------------
 
 
 # --- NEW FUNCTION TO COMMIT CHANGES TO GITHUB ---
@@ -21,6 +27,7 @@ def commit_to_github():
         g = Github(st.secrets["GITHUB_TOKEN"])
         
         # Use the environment variable to get the current repo name (Format: owner/repo)
+        # This environment variable is set by Streamlit Cloud
         repo_name = os.environ["STREAMLIT_GITHUB_REPO"]
         repo = g.get_repo(repo_name)
         
@@ -48,8 +55,8 @@ def commit_to_github():
                     sha=contents.sha, 
                     branch="main"
                 )
-            except Exception as e:
-                # If file doesn't exist, create it (should happen on first commit)
+            except Exception:
+                # If file doesn't exist, create it 
                 repo.create_file(
                     path=full_path, 
                     message=f"AUTO-SAVE: Created {file_name} from Streamlit app", 
@@ -91,7 +98,8 @@ def main():
     # --- AUTHENTICATION ---
     
     if not st.session_state['authenticated']:
-        authentication.show_login_page()
+        # Calls the login function from your admin_tool module
+        admin_tool.show_login_page() 
         return
 
     # --- SIDEBAR LAYOUT & MENU ---
@@ -153,7 +161,8 @@ def main():
         # --- LOGOUT BUTTON ---
         st.sidebar.markdown("---")
         if st.button("Logout"):
-            authentication.logout_user()
+            # Calls the logout function from your admin_tool module
+            admin_tool.logout_user()
 
 
         # --- DATA MANAGEMENT (GITHUB SAVE) ---
@@ -176,21 +185,29 @@ def main():
         
         # Only show charts if a specific child is selected
         if st.session_state['child_link'] != 'All':
-            progress_charts.display_child_dashboard(st.session_state['child_link'])
+            # Uses your dashboard module
+            dashboard.display_child_dashboard(st.session_state['child_link'])
         else:
             st.info("Select a child from the filter to view their individual dashboard.")
             
     elif st.session_state['menu_selection'] == 'Progress Tracking':
         st.header("Progress Tracking")
-        progress_tracking.show_progress_tracking()
+        # Uses your tracker module
+        tracker.show_progress_tracking()
         
     elif st.session_state['menu_selection'] == 'Session Planning':
         st.header("Session Planning")
-        session_planning.show_session_planning()
+        # Uses your planner module
+        planner.show_session_planning()
 
     elif st.session_state['menu_selection'] == 'Data & Analytics':
-        st.header("Data & Analytics")
-        data_analytics.show_data_analytics()
+        if st.session_state['user_role'] in ['admin', 'staff']:
+            st.header("Data & Analytics")
+            # Uses your database module (assuming analytics function is here)
+            # You may need to verify the function name:
+            db.show_data_analytics() 
+        else:
+            st.error("Access Denied. You do not have permission to view this page.")
 
     elif st.session_state['menu_selection'] == 'User Management':
         if st.session_state['user_role'] == 'admin':
@@ -202,7 +219,8 @@ def main():
     elif st.session_state['menu_selection'] == 'Child Management':
         if st.session_state['user_role'] == 'admin':
             st.header("Child Management")
-            child_management.show_child_management()
+            # Uses your admin_tool module
+            admin_tool.show_child_management()
         else:
             st.error("Access Denied. You do not have permission to view this page.")
 
