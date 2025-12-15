@@ -2,4 +2,3 @@ streamlit
 pandas
 plotly
 sqlalchemy
-streamlit-gsheets-connection
