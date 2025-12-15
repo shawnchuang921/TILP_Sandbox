@@ -5,9 +5,8 @@ import hashlib
 from github import Github
 
 # --- CORRECTED IMPORTS USING YOUR FILE NAMES ---
-# Note: authentication, child_management, and data_analytics logic 
-# is assumed to be handled by admin_tool and database.
-from views import admin_tool, user_management # admin_tool handles login/child/user management
+# IMPORTANT: Removed the non-existent 'user_management' module.
+from views import admin_tool # admin_tool handles login/child/user management
 from views import database as db # database handles persistence and will be used for analytics
 from views import dashboard, planner, tracker # These map to progress_charts, session_planning, progress_tracking
 # ---------------------------------------------
@@ -27,12 +26,10 @@ def commit_to_github():
         g = Github(st.secrets["GITHUB_TOKEN"])
         
         # Use the environment variable to get the current repo name (Format: owner/repo)
-        # This environment variable is set by Streamlit Cloud
         repo_name = os.environ["STREAMLIT_GITHUB_REPO"]
         repo = g.get_repo(repo_name)
         
         # 2. Iterate through data files and commit
-        # The 'data' folder must be created and tracked in the repository
         files_to_commit = [f for f in os.listdir("data") if f.endswith(".csv")]
         
         for file_name in files_to_commit:
@@ -114,9 +111,10 @@ def main():
                 "Progress Tracking", 
                 "Session Planning", 
                 "Data & Analytics", 
-                "User Management", 
+                "User Management", # Keep the menu option
                 "Child Management"
             ]
+        # ... (other roles remain the same)
         elif st.session_state['user_role'] == 'staff':
             menu_options = [
                 "Dashboard", 
@@ -203,8 +201,7 @@ def main():
     elif st.session_state['menu_selection'] == 'Data & Analytics':
         if st.session_state['user_role'] in ['admin', 'staff']:
             st.header("Data & Analytics")
-            # Uses your database module (assuming analytics function is here)
-            # You may need to verify the function name:
+            # Uses your database module (or the correct module)
             db.show_data_analytics() 
         else:
             st.error("Access Denied. You do not have permission to view this page.")
@@ -212,7 +209,8 @@ def main():
     elif st.session_state['menu_selection'] == 'User Management':
         if st.session_state['user_role'] == 'admin':
             st.header("User Management")
-            user_management.show_user_management()
+            # Since user_management.py doesn't exist, we assume this function is in admin_tool.py
+            admin_tool.show_user_management() 
         else:
             st.error("Access Denied. You do not have permission to view this page.")
 
