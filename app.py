@@ -1,80 +1,212 @@
 import streamlit as st
-# FIXED: Database functions are now imported from the new location (views.database)
-from views.database import init_db, get_user
-# Import the new admin tools page
-from views import tracker, planner, dashboard, admin_tools 
+import pandas as pd
+import os
+import hashlib
+from github import Github
+from views import database as db
+from views import authentication, user_management, child_management, progress_tracking, session_planning, data_analytics, progress_charts
 
-# Initialize Database
-init_db()
 
-# Page Configuration
-st.set_page_config(page_title="TILP Connect", layout="wide", page_icon="🧩")
+# --- NEW FUNCTION TO COMMIT CHANGES TO GITHUB ---
+def commit_to_github():
+    """Uses PyGithub to commit the local CSV files back to the repository."""
 
-# --- DATABASE AUTHENTICATION ---
-def login_screen():
-    st.title("🔐 TILP Connect Login")
-    
-    col1, col2 = st.columns([1, 2])
-    with col1:
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
+    # Check if running in Streamlit Cloud (where GITHUB_TOKEN is available)
+    if "GITHUB_TOKEN" not in st.secrets:
+        st.error("Error: GITHUB_TOKEN not found in secrets. Cannot save to GitHub.")
+        return False
+
+    try:
+        # 1. Initialize GitHub connection
+        g = Github(st.secrets["GITHUB_TOKEN"])
         
-        if st.button("Log In"):
-            user_data = get_user(username, password)
+        # Use the environment variable to get the current repo name (Format: owner/repo)
+        repo_name = os.environ["STREAMLIT_GITHUB_REPO"]
+        repo = g.get_repo(repo_name)
+        
+        # 2. Iterate through data files and commit
+        # The 'data' folder must be created and tracked in the repository
+        files_to_commit = [f for f in os.listdir("data") if f.endswith(".csv")]
+        
+        for file_name in files_to_commit:
+            full_path = os.path.join("data", file_name)
             
-            if user_data:
-                st.session_state["logged_in"] = True
-                st.session_state["user_role"] = user_data["role"]
-                st.session_state["username"] = user_data["username"]
-                # Store the child link for parent filtering
-                st.session_state["child_link"] = user_data["child_link"]
-                st.rerun()
-            else:
-                st.error("Incorrect username or password")
+            # Read the content of the file saved on the Streamlit server
+            with open(full_path, "r") as file:
+                content = file.read()
+
+            # Get the existing file SHA to update it (required by GitHub API)
+            try:
+                # Get the existing file contents object
+                contents = repo.get_contents(full_path, ref="main")
+                
+                # Update the file
+                repo.update_file(
+                    path=contents.path, 
+                    message=f"AUTO-SAVE: Updated {file_name} from Streamlit app", 
+                    content=content, 
+                    sha=contents.sha, 
+                    branch="main"
+                )
+            except Exception as e:
+                # If file doesn't exist, create it (should happen on first commit)
+                repo.create_file(
+                    path=full_path, 
+                    message=f"AUTO-SAVE: Created {file_name} from Streamlit app", 
+                    content=content, 
+                    branch="main"
+                )
+
+        st.session_state["save_status"] = "✅ Successfully saved all data to GitHub!"
+        return True
+
+    except Exception as e:
+        # st.exception(e) # Uncomment for detailed error logging
+        st.session_state["save_status"] = f"❌ Error saving to GitHub: {e.__class__.__name__}. Check token permissions."
+        return False
+# --- END NEW FUNCTION ---
+
 
 def main():
-    # Check Login Status
-    if "logged_in" not in st.session_state:
-        st.session_state["logged_in"] = False
+    """Main function to run the TILP Connect App."""
+    st.set_page_config(layout="wide", page_title="TILP Connect App", page_icon="🧩")
 
-    if not st.session_state["logged_in"]:
-        login_screen()
+    # --- INITIAL SETUP & STATE MANAGEMENT ---
+    
+    # Check if user is authenticated
+    if 'authenticated' not in st.session_state:
+        st.session_state['authenticated'] = False
+        st.session_state['user_role'] = None
+        st.session_state['username'] = None
+
+    # Check for default menu setting
+    if 'menu_selection' not in st.session_state:
+        st.session_state['menu_selection'] = 'Dashboard'
+        
+    # Check for child filtering setting
+    if 'child_link' not in st.session_state:
+        st.session_state['child_link'] = 'All'
+
+
+    # --- AUTHENTICATION ---
+    
+    if not st.session_state['authenticated']:
+        authentication.show_login_page()
         return
 
-    # --- SIDEBAR NAVIGATION ---
-    user_role = st.session_state["user_role"]
-    username = st.session_state["username"]
-    st.sidebar.title(f"👤 User: {username.capitalize()}")
-    st.sidebar.markdown(f"**Role:** {user_role.upper()}")
-    
-    # Define available pages based on Role
-    pages = {}
-    
-    # Admin has all permissions
-    if user_role == "admin":
-        pages["🔑 Admin Tools"] = admin_tools.show_page
-    
-    # Staff/Therapists/Admin roles
-    if user_role in ["admin", "OT", "SLP", "BC", "ECE", "Assistant", "staff"]:
-        pages["📝 Progress Tracker"] = tracker.show_page
-        pages["📅 Daily Planner"] = planner.show_page
-    
-    # Dashboard view changes based on role
-    if user_role == "parent":
-        child_name = st.session_state.get("child_link", "My Child")
-        pages[f"📊 My Child's Dashboard"] = dashboard.show_page
-    else:
-        pages["📊 Dashboard & Reports"] = dashboard.show_page
+    # --- SIDEBAR LAYOUT & MENU ---
+    with st.sidebar:
+        st.title("TILP Connect 🧩")
+        st.header(f"Welcome, {st.session_state['username']}!")
+        
+        # Determine available menu options based on role
+        if st.session_state['user_role'] == 'admin':
+            menu_options = [
+                "Dashboard", 
+                "Progress Tracking", 
+                "Session Planning", 
+                "Data & Analytics", 
+                "User Management", 
+                "Child Management"
+            ]
+        elif st.session_state['user_role'] == 'staff':
+            menu_options = [
+                "Dashboard", 
+                "Progress Tracking", 
+                "Session Planning",
+                "Data & Analytics"
+            ]
+        elif st.session_state['user_role'] == 'parent':
+            menu_options = [
+                "Dashboard", 
+                "Progress Tracking", 
+                "Data & Analytics"
+            ]
+        else: # Should not happen
+             menu_options = ["Dashboard"]
 
-    selection = st.sidebar.radio("Go to:", list(pages.keys()))
+        # Menu Selection
+        st.session_state['menu_selection'] = st.radio(
+            "Navigation", 
+            menu_options,
+            index=menu_options.index(st.session_state['menu_selection']) if st.session_state['menu_selection'] in menu_options else 0
+        )
+
+        # Child Filter (Available to all roles who can see data)
+        if st.session_state['user_role'] in ['admin', 'staff']:
+            children_df = db.get_data('children')
+            child_names = children_df['child_name'].tolist()
+            child_filter_list = ['All'] + sorted(child_names)
+            
+            # Use st.session_state['child_link'] as the default value to maintain selection
+            default_index = child_filter_list.index(st.session_state['child_link']) if st.session_state['child_link'] in child_filter_list else 0
+            
+            st.session_state['child_link'] = st.selectbox(
+                "Filter by Child", 
+                child_filter_list,
+                index=default_index
+            )
+        else: # Parents only see their own children
+            st.session_state['child_link'] = st.session_state.get('child_link', 'All') # Default to what was set during login
+
+        
+        # --- LOGOUT BUTTON ---
+        st.sidebar.markdown("---")
+        if st.button("Logout"):
+            authentication.logout_user()
+
+
+        # --- DATA MANAGEMENT (GITHUB SAVE) ---
+        st.sidebar.markdown("---")
+        st.sidebar.subheader("💾 Data Persistence")
+
+        if st.sidebar.button("Save Data to GitHub Permanently"):
+            with st.spinner("Committing changes to repository..."):
+                commit_to_github()
+                
+        # Display the result of the save operation
+        if "save_status" in st.session_state:
+            st.sidebar.info(st.session_state["save_status"])
+
+
+    # --- PAGE ROUTING ---
     
-    if st.sidebar.button("Log Out"):
-        st.session_state.clear()
-        st.session_state["logged_in"] = False
-        st.rerun()
+    if st.session_state['menu_selection'] == 'Dashboard':
+        st.header("Dashboard")
+        
+        # Only show charts if a specific child is selected
+        if st.session_state['child_link'] != 'All':
+            progress_charts.display_child_dashboard(st.session_state['child_link'])
+        else:
+            st.info("Select a child from the filter to view their individual dashboard.")
+            
+    elif st.session_state['menu_selection'] == 'Progress Tracking':
+        st.header("Progress Tracking")
+        progress_tracking.show_progress_tracking()
+        
+    elif st.session_state['menu_selection'] == 'Session Planning':
+        st.header("Session Planning")
+        session_planning.show_session_planning()
 
-    # Display Selected Page
-    pages[selection]()
+    elif st.session_state['menu_selection'] == 'Data & Analytics':
+        st.header("Data & Analytics")
+        data_analytics.show_data_analytics()
 
-if __name__ == "__main__":
+    elif st.session_state['menu_selection'] == 'User Management':
+        if st.session_state['user_role'] == 'admin':
+            st.header("User Management")
+            user_management.show_user_management()
+        else:
+            st.error("Access Denied. You do not have permission to view this page.")
+
+    elif st.session_state['menu_selection'] == 'Child Management':
+        if st.session_state['user_role'] == 'admin':
+            st.header("Child Management")
+            child_management.show_child_management()
+        else:
+            st.error("Access Denied. You do not have permission to view this page.")
+
+
+# Run the application
+if __name__ == '__main__':
     main()
