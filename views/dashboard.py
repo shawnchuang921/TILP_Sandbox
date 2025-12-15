@@ -1,10 +1,22 @@
-# views/dashboard.py (FINAL FIXED VERSION with Child Name in Recent Notes)
+# views/dashboard.py (UPDATED with CSV Export Function)
 import streamlit as st
 import plotly.express as px
 import pandas as pd
 from datetime import date
 from .database import get_data, get_list_data 
 import os 
+
+# --- NEW: Helper function to convert DataFrame to CSV for export ---
+@st.cache_data
+def convert_df_to_csv(df):
+    # Drop columns that are internal or not useful in an export
+    # 'media_path' contains server-local file paths, and 'numeric_status' is only for charting.
+    cols_to_drop = [col for col in ['media_path', 'numeric_status'] if col in df.columns]
+    # Use errors='ignore' in case 'numeric_status' hasn't been added to the df yet
+    df = df.drop(columns=cols_to_drop, errors='ignore') 
+    return df.to_csv(index=False).encode('utf-8')
+# -----------------------------------------------------------------
+
 
 def show_page():
     # Retrieve the child filter from the session state (set in app.py during login)
@@ -97,6 +109,22 @@ def show_page():
         if df_display.empty:
             st.warning(f"No progress data found matching all selected filters.")
             return
+
+        # --- NEW: CSV Export Button for Staff/Admin ---
+        # Determine a dynamic filename based on the filter
+        file_filter_name = selected_child.replace(" ", "_") if selected_child != "All Children" else "All_Children"
+        
+        # Place button in a visible spot
+        st.markdown("---")
+        st.download_button(
+            label="⬇️ Export Filtered Progress Data to CSV",
+            data=convert_df_to_csv(df_display.copy()), # Use a copy before sending to the function
+            file_name=f'TILP_Progress_Report_{file_filter_name}_{date.today().strftime("%Y%m%d")}.csv',
+            mime='text/csv',
+            key='download-csv'
+        )
+        # --- END NEW EXPORT FUNCTIONALITY ---
+
 
     # --- Display Metrics and Charts (This part remains the same, operating on filtered data) ---
     
